@@ -4,7 +4,7 @@
 #include <string.h>
 #include <ulog.h> //<> reiskia kad header turi buti patalpintas i sistemini headeriu folderi pvz /usr/include "" reiskia kad header yra toje pat direktorijoje kaio ir c failas is kurio jis includinamas
 
-struct option opts[] = { //inicializuoja masyva 
+struct option opts[] = { //initialise array
 	{ "help", no_argument, NULL, 'h' }, //
 	{ "program", required_argument, NULL, 'p' },
 	{ "level", required_argument, NULL, 'l' },

@@ -1,13 +1,17 @@
 .PHONY: all clean install
 
 all:
-	make -C ./lib
-	make -C ./src
+	$(MAKE) -C ./lib
+	$(MAKE) -C ./src
 
 clean:
-	make -C ./lib clean
-	make -C ./src clean
+	$(MAKE) -C ./lib clean
+	$(MAKE) -C ./src clean
 
 install:
-	make -C ./lib install
-	make -C ./src install
+	$(MAKE) -C ./lib install
+	$(MAKE) -C ./src install
+
+uninstall:
+	$(MAKE) -C ./lib uninstall
+	$(MAKE) -C ./src uninstall

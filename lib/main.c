@@ -71,7 +71,7 @@ void ulog(int level, const char *msg)
 	}
 }
 
-void print_time(char *value)
+static void print_time(char *value)
 {
 	struct tm ts;
 	char timestr[ULOG_NAME_MAX];

@@ -1,6 +1,5 @@
 INSTALL_DIR ?= /usr/bin/
 
-CC ?= gcc
 CP ?= cp -rf
 RM ?= rm -f
 CHMOD ?= chmod 755
@@ -32,3 +31,8 @@ clean:
 install:
 	$(CHMOD) $(TARGET) $(CLIENT1) $(CLIENT2)
 	$(CP) $(TARGET) $(CLIENT1) $(CLIENT2) $(INSTALL_DIR)
+
+uninstall:
+	$(RM) $(INSTALL_DIR)/$(TARGET)
+	$(RM) $(INSTALL_DIR)/$(CLIENT1)
+	$(RM) $(INSTALL_DIR)/$(CLIENT2)
