@@ -28,6 +28,8 @@ int ulog_init(const char *name)
 
 	rc = sqlite3_open("ulog.db", &ctx.db);
 	if (rc != SQLITE_OK) {
+		fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(ctx.db)); //
+        sqlite3_close(ctx.db);
 		return 1;
 	}
 
@@ -49,8 +51,8 @@ int ulog_init(const char *name)
 
 void ulog(int level, const char *msg)
 {
-	char *err_msg = NULL;
-	char query[2 * ULOG_MSG_MAX];
+	sqlite3_stmt *res;
+	char query[ULOG_MSG_MAX];
 	int rc;
 
 	if (level < ULOG_ERROR || level > ULOG_DEBUG) {
@@ -61,57 +63,38 @@ void ulog(int level, const char *msg)
 		return;
 	}
 
-	sprintf(query, "INSERT INTO Logs VALUES(%d, %d, '%s', '%s');",
-		(int)time(NULL), level, ctx.name, msg);
+	snprintf(query, ULOG_MSG_MAX, "INSERT INTO Logs VALUES(?, ?, ?, ?);");
 
-	rc = sqlite3_exec(ctx.db, query, 0, 0, &err_msg);
-	if (rc != SQLITE_OK) {
-		sqlite3_free(err_msg);
+	rc = sqlite3_prepare_v2(ctx.db, query, -1, &res, 0);
+	if (rc != SQLITE_OK)
 		return;
-	}
+
+	sqlite3_bind_int(res, 1, (int)time(NULL));
+	sqlite3_bind_int(res, 2, level);
+	sqlite3_bind_text(res, 3, ctx.name, -1, NULL);
+	sqlite3_bind_text(res, 4, msg, -1, NULL);
+
+	sqlite3_step(res);
+	sqlite3_finalize(res);
 }
 
-static void print_time(char *value)
+static void print_time(int value)
 {
 	struct tm ts;
 	char timestr[ULOG_NAME_MAX];
 
-	time_t time = (time_t)atoi(value);
+	time_t time = (time_t)value;
 	ts = *localtime(&time);
 
 	strftime(timestr, sizeof(timestr), "%a %Y-%m-%d %H:%M:%S %Z", &ts);
 	printf("[%s]", timestr);
 }
 
-int print_callback(void *query, int ncols, char **nfields, 
-	char **colnames) {
-
-	int i;
-	for (i = 0; i < ncols; i++) {
-		switch (i)
-		{
-			case 0:
-				print_time(nfields[i]);
-				break
-				;
-			case 1:
-				printf(" %s", ulog_level_name[atoi(nfields[i])]);
-				break
-				;
-			default: // name and message
-				printf(" %s", nfields[i]);
-		}
-	}
-	printf("\n");
-	
-	return 0;
-}
-
 void ulog_print(const char *name, int level)
 {
-	char *err_msg = NULL;
-	char query[2 * ULOG_MSG_MAX];
-	int rc;
+	sqlite3_stmt *res;
+	char query[ULOG_MSG_MAX];
+	int rc, step;
 
 	// allow:
 	// level 0 - all levels
@@ -124,20 +107,38 @@ void ulog_print(const char *name, int level)
 		return;
 	}
 
-	if (!name && !level) // no filter - show all entries
-		sprintf(query, "SELECT * FROM Logs");
-	else if (name && level) // filter by name and level
-		sprintf(query, "SELECT * FROM Logs WHERE Name='%s' AND Level='%d'", name, level);
-	else if (name) // filter by name
-		sprintf(query, "SELECT * FROM Logs WHERE Name='%s'", name);
-	else // filter by level
-		sprintf(query, "SELECT * FROM Logs WHERE Level='%d'", level);
-
-	rc = sqlite3_exec(ctx.db, query, print_callback, 0, &err_msg);
-	if (rc != SQLITE_OK) {
-		sqlite3_free(err_msg);
-		return;
+	if (!name && !level) { // no filter - show all entries
+		snprintf(query, ULOG_MSG_MAX, "SELECT * FROM Logs");
+	} else if (name && level) { // filter by name and level
+		snprintf(query, ULOG_MSG_MAX, "SELECT * FROM Logs WHERE Name = ? AND Level = ?");
+	} else if (name) { // filter by name
+		snprintf(query, ULOG_MSG_MAX, "SELECT * FROM Logs WHERE Name = ?");
+	} else if (level) { // filter by level
+		snprintf(query, ULOG_MSG_MAX, "SELECT * FROM Logs WHERE Level = ?");
 	}
+
+	rc = sqlite3_prepare_v2(ctx.db, query, -1, &res, 0);
+	if (rc != SQLITE_OK)
+		return;
+
+	if (name && level) { // filter by name and level
+		sqlite3_bind_text(res, 1, name, -1, NULL);
+		sqlite3_bind_int(res, 2, level);
+	} else if (name) { // filter by name
+		sqlite3_bind_text(res, 1, name, -1, NULL);
+	} else if (level) { // filter by level
+		sqlite3_bind_int(res, 1, level);
+	}
+
+	while ((step = sqlite3_step(res)) == SQLITE_ROW)
+	if (step == SQLITE_ROW) {
+		print_time(sqlite3_column_int(res, 0));
+		printf(" %s", ulog_level_name[sqlite3_column_int(res, 1)]);
+		printf(" %s", sqlite3_column_text(res, 2));
+		printf(" %s\n", sqlite3_column_text(res, 3));
+	}
+
+	sqlite3_finalize(res);
 }
 
 void ulog_destroy(void)
