@@ -7,18 +7,18 @@
 
 static volatile int stop = 0;
 
-void int_handler(int sig)
+static void int_handler(int sig)
 {
 	printf("client2: interrupted\n");
 	stop = 1;
 }
 
-int get_random_level()
+static int get_random_level()
 {
 	return (rand() % 4) + 1;
 }
 
-char *get_random_string(char *str, int size)
+static char *get_random_string(char *str, int size)
 {
 	const char charset[] = "abcdefghijklmnopqrstuvwxyz";
 	int n, key;
@@ -37,6 +37,7 @@ char *get_random_string(char *str, int size)
 int main(int argc, char **argv)
 {
 	char msg[ULOG_MSG_MAX] = {0};
+	int ret;
 
 	printf("client2 started...\n");
 
@@ -47,8 +48,11 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, int_handler);
 	while (!stop) {
-		ulog(get_random_level(),
+		ret = ulog(get_random_level(),
 			get_random_string(msg, ULOG_MSG_MAX / 4));
+		if (ret)
+			fprintf(stderr, "failed to log a message");
+
 		sleep(3);
 	}
 

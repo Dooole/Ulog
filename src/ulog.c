@@ -11,7 +11,7 @@ struct option opts[] = { //initialise array
 	{ NULL, 0, NULL, 0 }
 };
 
-void usage(const char *exec)
+static void usage(const char *exec)
 {
 	fprintf(stderr, "usage: %s [-h] [-p program] [-l level]\n"
 		"\t-h --help\t show this message\n"

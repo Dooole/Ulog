@@ -1,5 +1,6 @@
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <sqlite3.h>
 #include <time.h>
@@ -13,69 +14,90 @@ struct ulog_context {
 
 static struct ulog_context ctx = {0};
 
-//reference:
-//https://zetcode.com/db/sqlitec/
+/* 
+ reference:
+ https://zetcode.com/db/sqlitec/
+ */
 
 int ulog_init(const char *name)
 {
 	char *err_msg = NULL;
-	char query[2 * ULOG_MSG_MAX];
+	char query[ULOG_MSG_MAX];
 	int rc;
 
 	if (ctx.db != NULL) {
-		return 1;
+		fprintf(stderr, "%s:%s():%d: already initialized\n",
+			__FILE__, __func__, __LINE__);
+		return ULOG_ERROR_INITIALIZED;
 	}
 
-	rc = sqlite3_open("ulog.db", &ctx.db);
+	rc = sqlite3_open(ULOG_DB_NAME, &ctx.db);
 	if (rc != SQLITE_OK) {
-		fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(ctx.db)); //
-        sqlite3_close(ctx.db);
-		return 1;
+		fprintf(stderr, "%s:%s():%d: failed to open db: %s: %s\n",
+			__FILE__, __func__, __LINE__,
+			ULOG_DB_NAME, sqlite3_errmsg(ctx.db));
+		return ULOG_ERROR_DB;
 	}
 
-	sprintf(query, "CREATE TABLE Logs(Timestamp INT, Level INT, Name TEXT, Message TEXT);");
+	snprintf(query, ULOG_MSG_MAX,
+		"CREATE TABLE IF NOT EXISTS Logs(Timestamp INT, Level INT, Name TEXT, Message TEXT)");
 
 	rc = sqlite3_exec(ctx.db, query, 0, 0, &err_msg);
 	if (rc != SQLITE_OK) {
 		sqlite3_free(err_msg);
-		if (rc != SQLITE_ERROR) { // let SQL fail with SQLITE_ERROR - table may already exist. Exit on other codes.
-			return 1;
-		}
+		fprintf(stderr, "%s:%s():%d: sql error: %s\n",
+			__FILE__, __func__, __LINE__, err_msg);
+		return ULOG_ERROR_SQL;
 	}
 
 	if (name && strlen(name) < ULOG_NAME_MAX)
 		strncpy(ctx.name, name, ULOG_NAME_MAX-1);
 
-	return 0;
+	return ULOG_ERROR_NONE;
 }
 
-void ulog(int level, const char *msg)
+int ulog(int level, const char *msg)
 {
 	sqlite3_stmt *res;
 	char query[ULOG_MSG_MAX];
 	int rc;
 
 	if (level < ULOG_ERROR || level > ULOG_DEBUG) {
-		return;
+		fprintf(stderr, "%s:%s():%d: invalid argument: level\n",
+				__FILE__, __func__, __LINE__);
+		return ULOG_ERROR_PARAMS;
 	}
 
 	if (msg == NULL || strlen(msg) >= ULOG_MSG_MAX) {
-		return;
+		fprintf(stderr, "%s:%s():%d: invalid argument: name\n",
+				__FILE__, __func__, __LINE__);
+		return ULOG_ERROR_PARAMS;
 	}
 
 	snprintf(query, ULOG_MSG_MAX, "INSERT INTO Logs VALUES(?, ?, ?, ?);");
 
 	rc = sqlite3_prepare_v2(ctx.db, query, -1, &res, 0);
-	if (rc != SQLITE_OK)
-		return;
+	if (rc != SQLITE_OK) {
+		fprintf(stderr, "%s:%s():%d: sql error: %s\n",
+				__FILE__, __func__, __LINE__, sqlite3_errmsg(ctx.db));
+		return ULOG_ERROR_SQL;
+	}
 
 	sqlite3_bind_int(res, 1, (int)time(NULL));
 	sqlite3_bind_int(res, 2, level);
 	sqlite3_bind_text(res, 3, ctx.name, -1, NULL);
 	sqlite3_bind_text(res, 4, msg, -1, NULL);
 
-	sqlite3_step(res);
+	if (sqlite3_step(res) != SQLITE_DONE) {
+		sqlite3_finalize(res);
+		fprintf(stderr, "%s:%s():%d: sql error: %s\n",
+				__FILE__, __func__, __LINE__, sqlite3_errmsg(ctx.db));
+		return ULOG_ERROR_SQL;
+	}
+
 	sqlite3_finalize(res);
+
+	return ULOG_ERROR_NONE;
 }
 
 static void print_time(int value)
@@ -90,7 +112,7 @@ static void print_time(int value)
 	printf("[%s]", timestr);
 }
 
-void ulog_print(const char *name, int level)
+int ulog_print(const char *name, int level)
 {
 	sqlite3_stmt *res;
 	char query[ULOG_MSG_MAX];
@@ -100,26 +122,35 @@ void ulog_print(const char *name, int level)
 	// level 0 - all levels
 	// name NULL - all programs
 	if (level < ULOG_ALL || level > ULOG_DEBUG) {
-		return;
+		fprintf(stderr, "%s:%s():%d: invalid argument: level\n",
+				__FILE__, __func__, __LINE__);
+		return ULOG_ERROR_PARAMS;
 	}
 
 	if (name != NULL && strlen(name) >= ULOG_NAME_MAX) {
-		return;
+		fprintf(stderr, "%s:%s():%d: invalid argument: name\n",
+				__FILE__, __func__, __LINE__);
+		return ULOG_ERROR_PARAMS;
 	}
 
+	const char *select = "SELECT * FROM Logs";
+
 	if (!name && !level) { // no filter - show all entries
-		snprintf(query, ULOG_MSG_MAX, "SELECT * FROM Logs");
+		snprintf(query, ULOG_MSG_MAX, "%s", select);
 	} else if (name && level) { // filter by name and level
-		snprintf(query, ULOG_MSG_MAX, "SELECT * FROM Logs WHERE Name = ? AND Level = ?");
+		snprintf(query, ULOG_MSG_MAX, "%s WHERE Name = ? AND Level = ?", select);
 	} else if (name) { // filter by name
-		snprintf(query, ULOG_MSG_MAX, "SELECT * FROM Logs WHERE Name = ?");
+		snprintf(query, ULOG_MSG_MAX, "%s WHERE Name = ?", select);
 	} else if (level) { // filter by level
-		snprintf(query, ULOG_MSG_MAX, "SELECT * FROM Logs WHERE Level = ?");
+		snprintf(query, ULOG_MSG_MAX, "%s WHERE Level = ?", select);
 	}
 
 	rc = sqlite3_prepare_v2(ctx.db, query, -1, &res, 0);
-	if (rc != SQLITE_OK)
-		return;
+	if (rc != SQLITE_OK) {
+		fprintf(stderr, "%s:%s():%d: sql error: %s\n",
+				__FILE__, __func__, __LINE__, sqlite3_errmsg(ctx.db));
+		return ULOG_ERROR_SQL;
+	}
 
 	if (name && level) { // filter by name and level
 		sqlite3_bind_text(res, 1, name, -1, NULL);
@@ -138,13 +169,23 @@ void ulog_print(const char *name, int level)
 		printf(" %s\n", sqlite3_column_text(res, 3));
 	}
 
+	if (step != SQLITE_DONE) {
+		sqlite3_finalize(res);
+		fprintf(stderr, "%s:%s():%d: sql error: %s\n",
+				__FILE__, __func__, __LINE__, sqlite3_errmsg(ctx.db));
+		return ULOG_ERROR_SQL;
+	}
+
 	sqlite3_finalize(res);
+
+	return ULOG_ERROR_NONE;
 }
 
 void ulog_destroy(void)
 {
-
 	if (ctx.db == NULL) {
+		fprintf(stderr, "%s:%s():%d: not initialized\n",
+			__FILE__, __func__, __LINE__);
 		return;
 	}
 
